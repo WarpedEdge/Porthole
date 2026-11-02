@@ -63,7 +63,12 @@ jobs:
           for part in ntdll-unix win32u-unix wineserver dxmt-ios ffmpeg freetype-ios gnutls-ios; do
             script="vendor/Madeira/build/$part/build.sh"
             test -f "$script" || { echo "::error::Missing $script"; exit 1; }
-            bash "$script"
+            if ! bash "$script"; then
+              echo "::group::Compiler diagnostics for $part"
+              find "vendor/Madeira/build/$part" -type f \( -name "err-*.txt" -o -name "*.err" -o -name "*.log" \) -print -exec sh -c 'echo "----- $1"; tail -n 100 "$1"' _ {} \; || true
+              echo "::endgroup::"
+              exit 1
+            fi
           done
           tools/stage_runtime.sh
       - name: Generate Xcode project
