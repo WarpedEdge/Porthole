@@ -60,7 +60,22 @@ jobs:
           tools/build_dxmt_shader_headers.sh
           tools/apply_dxmt_patch.sh
           tools/build_fex_ios.sh
-          for part in ntdll-unix win32u-unix wineserver dxmt-ios ffmpeg freetype-ios gnutls-ios; do
+          # ntdll-unix compiles crypto, font, and media shims against the
+          # iOS cross-built headers, so build those dependencies first.
+          # iOS SDK 18.5 omits ri_page_wait_time_mach; report zero for this
+          # optional diagnostic metric rather than accessing a nonexistent field.
+          SERVER_IOS="vendor/Madeira/build/ntdll-unix/server_ios.c"
+          python3 - "$SERVER_IOS" <<'PY'
+          from pathlib import Path
+          import sys
+          p = Path(sys.argv[1])
+          s = p.read_text()
+          old = "XP_MS( ru.ri_page_wait_time_mach - pru.ri_page_wait_time_mach )"
+          if old not in s:
+              raise SystemExit("Unexpected server_ios.c layout; refusing blind patch")
+          p.write_text(s.replace(old, "0.0 /* SDK lacks page-wait-time metric */"))
+          PY
+          for part in gnutls-ios ffmpeg freetype-ios ntdll-unix win32u-unix wineserver dxmt-ios; do
             script="vendor/Madeira/build/$part/build.sh"
             test -f "$script" || { echo "::error::Missing $script"; exit 1; }
             if ! bash "$script"; then
