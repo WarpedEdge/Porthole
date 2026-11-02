@@ -15,7 +15,7 @@ jobs:
           submodules: recursive
       - name: Install build tools
         run: |
-          brew install xcodegen cmake ninja pkg-config
+          brew install xcodegen cmake ninja pkg-config bison flex
           xcodebuild -version
       - name: Test Visual C++ extractor
         run: bash app/Tests/VCRuntime/run.sh
@@ -29,6 +29,18 @@ jobs:
           set -euo pipefail
           echo "Building native libraries from the pinned Madeira submodules."
           echo "The upstream SOURCE.md warns that a clean build has not been validated."
+          # Madeira's native scripts expect Wine's macOS-generated config.h and
+          # generated headers, but a fresh submodule checkout has no build-macos.
+          WINE_SRC="$GITHUB_WORKSPACE/vendor/Madeira/wine"
+          mkdir -p "$WINE_SRC/build-macos"
+          (
+            cd "$WINE_SRC/build-macos"
+            ../configure --disable-tests
+          )
+          test -s "$WINE_SRC/build-macos/include/config.h" || {
+            echo "::error::Wine configure did not generate include/config.h"
+            exit 1
+          }
           # The wineserver helper captures clang failures in per-source err-*.txt files.
           # Print them before exiting so failures are diagnosable from Actions logs.
           if ! tools/build_wineserver_base.sh; then
