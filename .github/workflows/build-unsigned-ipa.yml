@@ -15,9 +15,10 @@ jobs:
           submodules: recursive
       - name: Install build tools
         run: |
-          brew install xcodegen cmake ninja pkg-config bison flex
+          brew install xcodegen cmake ninja pkg-config bison flex mingw-w64 llvm
           echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
           echo "$(brew --prefix flex)/bin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
           xcodebuild -version
       - name: Test Visual C++ extractor
         run: bash app/Tests/VCRuntime/run.sh
@@ -33,6 +34,11 @@ jobs:
           echo "The upstream SOURCE.md warns that a clean build has not been validated."
           # Madeira's native scripts expect Wine's macOS-generated config.h and
           # generated headers, but a fresh submodule checkout has no build-macos.
+          # Validate native toolchain dependencies together before the expensive build.
+          for command in bison flex x86_64-w64-mingw32-gcc llvm-objcopy cmake ninja xcodegen; do
+            command -v "$command" || { echo "::error::Missing $command"; exit 1; }
+          done
+          bison --version | head -1
           WINE_SRC="$GITHUB_WORKSPACE/vendor/Madeira/wine"
           mkdir -p "$WINE_SRC/build-macos"
           (
