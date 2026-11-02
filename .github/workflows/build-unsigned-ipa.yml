@@ -35,7 +35,7 @@ jobs:
           mkdir -p "$WINE_SRC/build-macos"
           (
             cd "$WINE_SRC/build-macos"
-            ../configure --disable-tests
+            ../configure --enable-win64 --disable-tests
           )
           test -s "$WINE_SRC/build-macos/include/config.h" || {
             echo "::error::Wine configure did not generate include/config.h"
