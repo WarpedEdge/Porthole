@@ -1,0 +1,60 @@
+name: Build unsigned Porthole IPA
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/arm64-vc-runtime-ci]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install build tools
+        run: |
+          brew install xcodegen cmake ninja pkg-config
+          xcodebuild -version
+      - name: Test Visual C++ extractor
+        run: bash app/Tests/VCRuntime/run.sh
+      - name: Prepare project configuration
+        run: |
+          cp app/Config/Local.xcconfig.example app/Config/Local.xcconfig
+          sed -i '' 's/com.example.porthole/com.warpededge.porthole/g' app/Config/Local.xcconfig
+      - name: Build native runtime dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Building native libraries from the pinned Madeira submodules."
+          echo "The upstream SOURCE.md warns that a clean build has not been validated."
+          tools/build_wineserver_base.sh
+          tools/build_dxmt_shader_headers.sh
+          tools/apply_dxmt_patch.sh
+          tools/build_fex_ios.sh
+          for part in ntdll-unix win32u-unix wineserver dxmt-ios ffmpeg freetype-ios gnutls-ios; do
+            script="vendor/Madeira/build/$part/build.sh"
+            test -f "$script" || { echo "::error::Missing $script"; exit 1; }
+            bash "$script"
+          done
+          tools/stage_runtime.sh
+      - name: Generate Xcode project
+        run: cd app && xcodegen generate
+      - name: Build unsigned app
+        run: |
+          set -euo pipefail
+          xcodebuild -project app/Porthole.xcodeproj -scheme Porthole -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/DerivedData" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
+      - name: Package IPA
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos/Porthole.app"
+          test -d "$APP"
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          cp -R "$APP" "$RUNNER_TEMP/ipa/Payload/"
+          (cd "$RUNNER_TEMP/ipa" && zip -qry "$GITHUB_WORKSPACE/Porthole-unsigned.ipa" Payload)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Porthole-unsigned-ipa
+          path: Porthole-unsigned.ipa
+          if-no-files-found: error
