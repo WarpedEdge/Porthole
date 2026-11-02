@@ -29,7 +29,14 @@ jobs:
           set -euo pipefail
           echo "Building native libraries from the pinned Madeira submodules."
           echo "The upstream SOURCE.md warns that a clean build has not been validated."
-          tools/build_wineserver_base.sh
+          # The wineserver helper captures clang failures in per-source err-*.txt files.
+          # Print them before exiting so failures are diagnosable from Actions logs.
+          if ! tools/build_wineserver_base.sh; then
+            echo "::group::Wine server compiler diagnostics"
+            find vendor/Madeira/build/wineserver -type f -name 'err-*.txt' -print -exec sh -c 'echo "----- $1"; cat "$1"' _ {} \; || true
+            echo "::endgroup::"
+            exit 1
+          fi
           tools/build_dxmt_shader_headers.sh
           tools/apply_dxmt_patch.sh
           tools/build_fex_ios.sh
