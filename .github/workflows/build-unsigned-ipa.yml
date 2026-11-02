@@ -87,6 +87,11 @@ jobs:
             echo "::error::FreeType 2.13.3 headers missing"
             exit 1
           }
+          # Madeira keeps FreeType as an external shallow checkout, not a submodule.
+          if [ ! -f vendor/Madeira/research/freetype/CMakeLists.txt ]; then
+            mkdir -p vendor/Madeira/research
+            git clone --depth 1 --branch VER-2-13-3 https://github.com/freetype/freetype.git vendor/Madeira/research/freetype
+          fi
           for part in gnutls-ios ffmpeg freetype-ios ntdll-unix win32u-unix wineserver dxmt-ios; do
             script="vendor/Madeira/build/$part/build.sh"
             test -f "$script" || { echo "::error::Missing $script"; exit 1; }
