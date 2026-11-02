@@ -75,6 +75,18 @@ jobs:
               raise SystemExit("Unexpected server_ios.c layout; refusing blind patch")
           p.write_text(s.replace(old, "0.0 /* SDK lacks page-wait-time metric */"))
           PY
+          # Madeira's freetype-ios script requires a separate source checkout;
+          # this tree is not included in the pinned git submodules.
+          FREETYPE_SRC="$GITHUB_WORKSPACE/vendor/Madeira/research/freetype"
+          if [ ! -f "$FREETYPE_SRC/CMakeLists.txt" ]; then
+            mkdir -p "$(dirname "$FREETYPE_SRC")"
+            git clone --depth 1 --branch VER-2-13-3 \
+              https://github.com/freetype/freetype.git "$FREETYPE_SRC"
+          fi
+          test -f "$FREETYPE_SRC/include/ft2build.h" || {
+            echo "::error::FreeType 2.13.3 headers missing"
+            exit 1
+          }
           for part in gnutls-ios ffmpeg freetype-ios ntdll-unix win32u-unix wineserver dxmt-ios; do
             script="vendor/Madeira/build/$part/build.sh"
             test -f "$script" || { echo "::error::Missing $script"; exit 1; }
