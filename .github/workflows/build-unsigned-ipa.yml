@@ -8,7 +8,7 @@ permissions:
 jobs:
   build:
     runs-on: macos-15-intel
-    timeout-minutes: 120
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,6 +26,78 @@ jobs:
         run: |
           cp app/Config/Local.xcconfig.example app/Config/Local.xcconfig
           sed -i '' 's/com.example.porthole/com.warpededge.porthole/g' app/Config/Local.xcconfig
+      - name: Prepare LLVM 15 iOS static libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$GITHUB_WORKSPACE/vendor/Madeira/toolchains"
+          mkdir -p "$ROOT"
+          if [ ! -f "$ROOT/llvm-project/llvm/CMakeLists.txt" ]; then
+            git clone --depth 1 --branch llvmorg-15.0.7 https://github.com/llvm/llvm-project.git "$ROOT/llvm-project"
+          fi
+          LLVM="$ROOT/llvm-project/llvm"
+          # Madeira's DXMT airconv is tied to LLVM 15 headers and iOS archives.
+          cmake -S "$LLVM" -B "$ROOT/llvm-host-build" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_PROJECTS="" \
+            -DLLVM_TARGETS_TO_BUILD="" -DLLVM_INCLUDE_TESTS=OFF \
+            -DLLVM_INCLUDE_EXAMPLES=OFF -DLLVM_INCLUDE_BENCHMARKS=OFF
+          cmake --build "$ROOT/llvm-host-build" --target llvm-tblgen --parallel 4
+          # LLVM 15's AddLLVM.cmake uses ELF linker GC flags for iOS unless
+          # iOS is included in the Darwin branch.
+          python3 - "$LLVM/cmake/modules/AddLLVM.cmake" <<'PY'
+          from pathlib import Path
+          import sys
+          p = Path(sys.argv[1])
+          s = p.read_text()
+          old = 'MATCHES "Darwin"'
+          if old not in s and 'MATCHES "Darwin|iOS"' not in s:
+              raise SystemExit("Unexpected LLVM AddLLVM.cmake; refusing blind patch")
+          if old in s:
+              p.write_text(s.replace(old, 'MATCHES "Darwin|iOS"'))
+          PY
+          cmake -S "$LLVM" -B "$ROOT/llvm-ios-build" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphoneos -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=18.0 \
+            -DLLVM_TABLEGEN="$ROOT/llvm-host-build/bin/llvm-tblgen" \
+            -DLLVM_BUILD_UTILS=OFF -DLLVM_TARGETS_TO_BUILD="" \
+            -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF \
+            -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_ENABLE_TERMINFO=OFF \
+            -DLLVM_ENABLE_ZLIB=OFF -DLLVM_ENABLE_ZSTD=OFF
+          cmake --build "$ROOT/llvm-ios-build" --parallel 4
+          test -f "$ROOT/llvm-ios-build/include/llvm/Config/llvm-config.h"
+          find "$ROOT/llvm-ios-build/lib" -maxdepth 1 -name '*.a' | grep -q .
+      - name: Patch MetalFX for installed iOS SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC=vendor/Madeira/dxmt/src/winemetal/unix/winemetal_unix.c
+          python3 - "$SRC" <<'PY'
+          from pathlib import Path
+          import sys
+          p = Path(sys.argv[1])
+          s = p.read_text()
+          # Frame interpolation is iOS 26-only. The macOS-15 runner's SDK
+          # does not declare those types; disable this optional feature at
+          # compile time while preserving normal Metal presentation.
+          start = s.index('static int madeira_fg_setup(')
+          end = s.index('static void madeira_fg_dispatch(', start)
+          setup = s[start:end]
+          if 'MTLFXFrameInterpolatorDescriptor' not in setup:
+              raise SystemExit("Unexpected MetalFX setup layout")
+          setup = '#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 260000\n' + setup + '#else\nstatic int madeira_fg_setup(id<MTLDevice> dev, id<MTLTexture> src) { (void)dev; (void)src; return 0; }\n#endif\n'
+          s = s[:start] + setup + s[end:]
+          # The frame-generation presentation function also refers to the
+          # unavailable MetalFX protocol. Stub only this optional path.
+          start = s.index('static int madeira_fg_present_inner(')
+          end = s.index('static NTSTATUS', start)
+          present = s[start:end]
+          if 'MTLFXFrameInterpolator' not in present:
+              raise SystemExit("Unexpected MetalFX present layout")
+          present = '#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 260000\n' + present + '#else\nstatic int madeira_fg_present(id<MTLCommandBuffer> cb, id<CAMetalDrawable> drawable) { (void)cb; (void)drawable; return 0; }\n#endif\n'
+          s = s[:start] + present + s[end:]
+          p.write_text(s)
+          PY
       - name: Build native runtime dependencies
         shell: bash
         run: |
