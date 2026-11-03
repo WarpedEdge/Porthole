@@ -53,7 +53,7 @@ jobs:
           # headers required by Madeira's ntdll unixlibs are generated from
           # Wine IDL by widl. Build these headers with Wine's own make rules
           # (which also build the host widl tool) before compiling iOS code.
-          WINE_HEADERS=(wtypesbase.h wtypes.h unknwn.h objidlbase.h objidl.h oaidl.h propidl.h oleidl.h dwrite.h dwrite_3.h mfobjects.h mftransform.h)
+          WINE_HEADERS=(wtypesbase.h wtypes.h unknwn.h objidlbase.h objidl.h oaidl.h propidl.h oleidl.h ocidl.h dcommon.h dwrite.h dwrite_3.h mfobjects.h mftransform.h)
           WINE_TARGETS=()
           for header in "${WINE_HEADERS[@]}"; do
             WINE_TARGETS+=("include/$header")
