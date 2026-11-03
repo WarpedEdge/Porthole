@@ -26,7 +26,17 @@ jobs:
         run: |
           cp app/Config/Local.xcconfig.example app/Config/Local.xcconfig
           sed -i '' 's/com.example.porthole/com.warpededge.porthole/g' app/Config/Local.xcconfig
+      - name: Restore LLVM 15 iOS build cache
+        id: llvm-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            vendor/Madeira/toolchains/llvm-project
+            vendor/Madeira/toolchains/llvm-host-build
+            vendor/Madeira/toolchains/llvm-ios-build
+          key: ${{ runner.os }}-${{ runner.arch }}-llvm15-ios-v1
       - name: Prepare LLVM 15 iOS static libraries
+        if: steps.llvm-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -68,6 +78,15 @@ jobs:
           cmake --build "$ROOT/llvm-ios-build" --parallel 4
           test -f "$ROOT/llvm-ios-build/include/llvm/Config/llvm-config.h"
           find "$ROOT/llvm-ios-build/lib" -maxdepth 1 -name '*.a' | grep -q .
+      - name: Save LLVM 15 iOS build cache
+        if: steps.llvm-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            vendor/Madeira/toolchains/llvm-project
+            vendor/Madeira/toolchains/llvm-host-build
+            vendor/Madeira/toolchains/llvm-ios-build
+          key: ${{ steps.llvm-cache.outputs.cache-primary-key }}
       - name: Patch MetalFX for installed iOS SDK
         shell: bash
         run: |
@@ -231,6 +250,8 @@ jobs:
             fi
           done
           tools/stage_runtime.sh
+      - name: Prepare StikJIT framework
+        run: python3 tools/prepare_stikjit.py
       - name: Generate Xcode project
         run: cd app && xcodegen generate
       - name: Build unsigned app
