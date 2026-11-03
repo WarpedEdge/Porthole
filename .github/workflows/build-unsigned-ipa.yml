@@ -49,6 +49,22 @@ jobs:
             echo "::error::Wine configure did not generate include/config.h"
             exit 1
           }
+          # Wine's configure only creates config.h; the COM/Media Foundation
+          # headers required by Madeira's ntdll unixlibs are generated from
+          # Wine IDL by widl. Build these headers with Wine's own make rules
+          # (which also build the host widl tool) before compiling iOS code.
+          WINE_HEADERS=(wtypes.h dwrite.h dwrite_3.h mfobjects.h mftransform.h)
+          WINE_TARGETS=()
+          for header in "${WINE_HEADERS[@]}"; do
+            WINE_TARGETS+=("include/$header")
+          done
+          make -C "$WINE_SRC/build-macos" -j4 "${WINE_TARGETS[@]}"
+          for header in "${WINE_HEADERS[@]}"; do
+            test -s "$WINE_SRC/build-macos/include/$header" || {
+              echo "::error::Missing generated Wine header $header"
+              exit 1
+            }
+          done
           # The wineserver helper captures clang failures in per-source err-*.txt files.
           # Print them before exiting so failures are diagnosable from Actions logs.
           if ! tools/build_wineserver_base.sh; then
@@ -87,11 +103,6 @@ jobs:
             echo "::error::FreeType 2.13.3 headers missing"
             exit 1
           }
-          # Madeira keeps FreeType as an external shallow checkout, not a submodule.
-          if [ ! -f vendor/Madeira/research/freetype/CMakeLists.txt ]; then
-            mkdir -p vendor/Madeira/research
-            git clone --depth 1 --branch VER-2-13-3 https://github.com/freetype/freetype.git vendor/Madeira/research/freetype
-          fi
           for part in gnutls-ios ffmpeg freetype-ios ntdll-unix win32u-unix wineserver dxmt-ios; do
             script="vendor/Madeira/build/$part/build.sh"
             test -f "$script" || { echo "::error::Missing $script"; exit 1; }
