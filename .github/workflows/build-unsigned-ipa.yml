@@ -54,7 +54,8 @@ jobs:
           # Wine IDL by widl. Build these headers with Wine's own make rules
           # (which also build the host widl tool) before compiling iOS code.
           # Generate the initial IDL targets, then resolve transitive IDL includes
-          # instead of manually adding a new header after every CI failure.
+          # from generated headers AND Wine source headers used by the server.
+          # This catches source-only chains such as shlguid.h -> exdisp.h.
           WINE_HEADERS=(wtypesbase.h wtypes.h unknwn.h objidlbase.h objidl.h oaidl.h propidl.h oleidl.h ocidl.h urlmon.h msxml.h servprov.h dxgiformat.h dcommon.h dwrite.h dwrite_1.h dwrite_2.h dwrite_3.h d2d1.h d3d10.h d3d10_1.h control.h amvideo.h strmif.h mfobjects.h mftransform.h)
           python3 - "$WINE_SRC" "${WINE_HEADERS[@]}" <<'PY'
           from pathlib import Path
@@ -82,6 +83,9 @@ jobs:
               # Check generated headers and their source-tree dependencies.
               visited = set()
               stack = [generated / name for name in completed]
+              # Some generated IDL dependencies are referenced only by
+              # ordinary Wine headers, not by another generated header.
+              stack.extend([source_headers / "shlguid.h"])
               while stack:
                   file = stack.pop()
                   if file in visited or not file.is_file():
