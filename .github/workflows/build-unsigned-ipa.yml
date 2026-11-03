@@ -53,18 +53,58 @@ jobs:
           # headers required by Madeira's ntdll unixlibs are generated from
           # Wine IDL by widl. Build these headers with Wine's own make rules
           # (which also build the host widl tool) before compiling iOS code.
+          # Generate the initial IDL targets, then resolve transitive IDL includes
+          # instead of manually adding a new header after every CI failure.
           WINE_HEADERS=(wtypesbase.h wtypes.h unknwn.h objidlbase.h objidl.h oaidl.h propidl.h oleidl.h ocidl.h urlmon.h msxml.h servprov.h dxgiformat.h dcommon.h dwrite.h dwrite_1.h dwrite_2.h dwrite_3.h d2d1.h d3d10.h d3d10_1.h control.h amvideo.h strmif.h mfobjects.h mftransform.h)
-          WINE_TARGETS=()
-          for header in "${WINE_HEADERS[@]}"; do
-            WINE_TARGETS+=("include/$header")
-          done
-          make -C "$WINE_SRC/build-macos" -j4 "${WINE_TARGETS[@]}"
-          for header in "${WINE_HEADERS[@]}"; do
-            test -s "$WINE_SRC/build-macos/include/$header" || {
-              echo "::error::Missing generated Wine header $header"
-              exit 1
-            }
-          done
+          python3 - "$WINE_SRC" "${WINE_HEADERS[@]}" <<'PY'
+          from pathlib import Path
+          import re
+          import subprocess
+          import sys
+
+          src = Path(sys.argv[1])
+          generated = src / "build-macos/include"
+          source_headers = src / "include"
+          pending = set(sys.argv[2:])
+          completed = set()
+          include_pattern = re.compile(r'^\s*#\s*include\s*[<"]([^">]+)[">]', re.M)
+          for iteration in range(30):
+              batch = sorted(pending - completed)
+              if batch:
+                  subprocess.run(
+                      ["make", "-C", str(src / "build-macos"), "-j4",
+                       *(f"include/{name}" for name in batch)], check=True)
+                  for name in batch:
+                      if not (generated / name).is_file():
+                          raise SystemExit(f"Missing generated Wine header: {name}")
+                  completed.update(batch)
+              discovered = set()
+              # Check generated headers and their source-tree dependencies.
+              visited = set()
+              stack = [generated / name for name in completed]
+              while stack:
+                  file = stack.pop()
+                  if file in visited or not file.is_file():
+                      continue
+                  visited.add(file)
+                  for name in include_pattern.findall(file.read_text(errors="replace")):
+                      if "/" in name or not name.endswith(".h"):
+                          continue
+                      generated_header = generated / name
+                      source_header = source_headers / name
+                      if generated_header.is_file():
+                          stack.append(generated_header)
+                      elif source_header.is_file():
+                          stack.append(source_header)
+                      elif (source_headers / (name[:-2] + ".idl")).is_file():
+                          discovered.add(name)
+              pending.update(discovered)
+              if not pending - completed:
+                  print(f"Validated {len(completed)} generated Wine headers and transitive includes")
+                  break
+          else:
+              raise SystemExit("Wine IDL header dependency resolution did not converge")
+          PY
           # The wineserver helper captures clang failures in per-source err-*.txt files.
           # Print them before exiting so failures are diagnosable from Actions logs.
           if ! tools/build_wineserver_base.sh; then
