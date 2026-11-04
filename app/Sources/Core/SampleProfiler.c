@@ -20,8 +20,10 @@
 extern pthread_key_t ios_teb_tls_key;
 extern uint64_t ios_native_rip_from_hostpc(uint64_t block_begin, uint64_t host_pc, const char **why);
 // The graphics layer's per-render-pass GPU timer (dxmt winemetal_unix.c, patch 0144): on while the profile samples, its table is logged at the end.
-extern void madeira_passprof_start(void);
-extern void madeira_passprof_dump(double seconds);
+/* This DXMT revision does not export GPU pass profiling. Treat it as an
+ * optional capability, while preserving the CPU sampling profiler. */
+extern void madeira_passprof_start(void) __attribute__((weak_import));
+extern void madeira_passprof_dump(double seconds) __attribute__((weak_import));
 
 #define MAX_THREADS 512
 #define MAX_MODS 200
@@ -646,7 +648,7 @@ static void *run(void *arg) {
     }
     mach_port_deallocate(mach_task_self(), self);
     g.phase = 2;
-    madeira_passprof_dump(g.seconds);
+    if (madeira_passprof_dump) madeira_passprof_dump(g.seconds);
     report();
     g.phase = 3;
     g.running = 0;
@@ -671,7 +673,7 @@ int sample_profiler_start(double seconds, int hz, void (*logger)(const char *lin
     g.cap = (size_t)(seconds * hz) * 12;
     g.samples = malloc(g.cap * sizeof(Sample));
     if (!g.samples) return 2;
-    madeira_passprof_start();
+    if (madeira_passprof_start) madeira_passprof_start();
     g.running = 1; g.phase = 1; g.t0 = mono_s();
     pthread_t p; pthread_attr_t at; pthread_attr_init(&at);
     if (pthread_create(&p, &at, run, NULL) != 0) { g.running = 0; free(g.samples); g.samples = NULL; return 3; }
