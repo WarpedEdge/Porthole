@@ -39,7 +39,10 @@ public struct ZipEntry: Equatable, Sendable {
     static func dos(_ date: Date) -> (UInt16, UInt16) {
         let parts = Calendar(identifier: .gregorian).dateComponents(in: TimeZone.current, from: date)
         let year = max(1980, parts.year ?? 1980)
-        let time = UInt16((parts.hour ?? 0) << 11 | (parts.minute ?? 0) << 5 | (parts.second ?? 0) / 2)
+        let hour = UInt16(parts.hour ?? 0)
+        let minute = UInt16(parts.minute ?? 0)
+        let second = UInt16((parts.second ?? 0) / 2)
+        let time = (hour << 11) | (minute << 5) | second
         let day = UInt16((year - 1980) << 9 | (parts.month ?? 1) << 5 | (parts.day ?? 1))
         return (time, day)
     }
@@ -255,8 +258,11 @@ enum CRC32 {
                 while i + 8 <= n {
                     let lo = raw.loadUnaligned(fromByteOffset: i, as: UInt32.self).littleEndian ^ crc
                     let hi = raw.loadUnaligned(fromByteOffset: i + 4, as: UInt32.self).littleEndian
-                    crc = t[7 * 256 + Int(lo & 0xff)] ^ t[6 * 256 + Int((lo >> 8) & 0xff)] ^ t[5 * 256 + Int((lo >> 16) & 0xff)] ^ t[4 * 256 + Int(lo >> 24)]
-                      ^ t[3 * 256 + Int(hi & 0xff)] ^ t[2 * 256 + Int((hi >> 8) & 0xff)] ^ t[1 * 256 + Int((hi >> 16) & 0xff)] ^ t[Int(hi >> 24)]
+                    let a = t[7 * 256 + Int(lo & 0xff)] ^ t[6 * 256 + Int((lo >> 8) & 0xff)]
+                    let b = t[5 * 256 + Int((lo >> 16) & 0xff)] ^ t[4 * 256 + Int(lo >> 24)]
+                    let c = t[3 * 256 + Int(hi & 0xff)] ^ t[2 * 256 + Int((hi >> 8) & 0xff)]
+                    let d = t[1 * 256 + Int((hi >> 16) & 0xff)] ^ t[Int(hi >> 24)]
+                    crc = (a ^ b) ^ (c ^ d)
                     i += 8
                 }
                 while i < n {
