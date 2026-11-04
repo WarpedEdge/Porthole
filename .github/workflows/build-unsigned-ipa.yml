@@ -258,6 +258,12 @@ jobs:
           tools/stage_runtime.sh
       - name: Prepare StikJIT framework
         run: python3 tools/prepare_stikjit.py
+      - name: Stage Madeira configuration header
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          cp vendor/Madeira/build/madeira_cfg.h build/madeira_cfg.h
+          test -s build/madeira_cfg.h
       - name: Generate Xcode project
         run: cd app && xcodegen generate
       - name: Build unsigned app
