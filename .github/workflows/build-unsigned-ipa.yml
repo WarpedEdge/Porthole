@@ -255,6 +255,20 @@ jobs:
               exit 1
             fi
           done
+          # DXMT's build.sh emits only libdxmt_unix.a; Xcode links the
+          # combined archive containing its objects and LLVM iOS libraries.
+          DXMT_BUILD="$GITHUB_WORKSPACE/vendor/Madeira/build/dxmt-ios"
+          LLVM_LIB="$GITHUB_WORKSPACE/vendor/Madeira/toolchains/llvm-ios-build/lib"
+          test -f "$DXMT_BUILD/libdxmt_unix.a"
+          test -d "$DXMT_BUILD/obj"
+          test -d "$LLVM_LIB"
+          llvm_archives=("$LLVM_LIB"/*.a)
+          test -f "${llvm_archives[0]}" || { echo "::error::No LLVM iOS archives"; exit 1; }
+          xcrun -sdk iphoneos libtool -static -o "$DXMT_BUILD/libdxmt_combined.a" \
+            "$DXMT_BUILD"/obj/*.o "${llvm_archives[@]}"
+          cp "$DXMT_BUILD/libdxmt_combined.a" \
+            "$GITHUB_WORKSPACE/vendor/Madeira/app/Madeira/libdxmt_combined.a"
+          test -s "$GITHUB_WORKSPACE/vendor/Madeira/app/Madeira/libdxmt_combined.a"
           tools/stage_runtime.sh
       - name: Prepare StikJIT framework
         run: python3 tools/prepare_stikjit.py
