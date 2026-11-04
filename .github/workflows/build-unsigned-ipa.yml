@@ -13,6 +13,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+      - name: Select Xcode 26 SDK
+        run: |
+          set -euo pipefail
+          sudo xcode-select -s /Applications/Xcode_26.3.app/Contents/Developer
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
       - name: Install build tools
         run: |
           brew install xcodegen cmake ninja pkg-config bison flex mingw-w64 llvm
