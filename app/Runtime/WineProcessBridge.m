@@ -37,6 +37,16 @@
 #include "PrefixExtractor.h"
 #include "FEXBridge.h"  // fex_get_jit_write_offset()
 
+/* The pinned DXMT runtime does not export these newer frame-generation
+ * controls. Keep the UI linkable and report the feature as disabled.
+ * Weak definitions allow a future runtime's strong implementation to win. */
+__attribute__((weak)) int madeira_framegen_get(void) { return 0; }
+__attribute__((weak)) void madeira_framegen_set(int on, double hz)
+{
+    (void)on;
+    (void)hz;
+}
+
 // Thread-local globals for wine_ios_exit longjmp (used by wine_ios_exit.h shim in ntdll)
 // Each Wine "process" thread has its own jmpbuf so child processes can exit independently.
 _Thread_local jmp_buf wine_ios_exit_jmpbuf;
