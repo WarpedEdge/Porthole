@@ -34,7 +34,28 @@ jobs:
         run: |
           cp app/Config/Local.xcconfig.example app/Config/Local.xcconfig
           sed -i '' 's/com.example.porthole/com.warpededge.porthole/g' app/Config/Local.xcconfig
+      # The native runtime is unchanged by Swift/UI edits. Cache its final
+      # iOS archives separately so subsequent app builds skip Wine/FEX/DXMT.
+      - name: Restore completed iOS native runtime
+        id: native-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            vendor/Madeira/app/Madeira/lib*.a
+            vendor/Madeira/build/madeira_cfg.h
+          key: native-ios-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('vendor/Madeira/.git', 'tools/build_*.sh', 'tools/apply_dxmt_patch.sh', 'patches/*.patch') }}
+      - name: Validate restored native runtime
+        if: steps.native-cache.outputs.cache-hit == 'true'
+        run: |
+          set -euo pipefail
+          for lib in dxmt_combined gmp lzma gnutls hogweed nettle ntdll_unix win32u_unix wineserver avcodec avformat avutil swresample; do
+            test -s "vendor/Madeira/app/Madeira/lib${lib}.a" || {
+              echo "::error::Cached native library missing: lib${lib}.a"; exit 1;
+            }
+          done
+          test -s vendor/Madeira/build/madeira_cfg.h
       - name: Restore LLVM 15 iOS build cache
+        if: steps.native-cache.outputs.cache-hit != 'true'
         id: llvm-cache
         uses: actions/cache/restore@v4
         with:
@@ -44,7 +65,7 @@ jobs:
             vendor/Madeira/toolchains/llvm-ios-build
           key: ${{ runner.os }}-${{ runner.arch }}-llvm15-ios-v1
       - name: Prepare LLVM 15 iOS static libraries
-        if: steps.llvm-cache.outputs.cache-hit != 'true'
+        if: steps.native-cache.outputs.cache-hit != 'true' && steps.llvm-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -96,6 +117,7 @@ jobs:
             vendor/Madeira/toolchains/llvm-ios-build
           key: ${{ steps.llvm-cache.outputs.cache-primary-key }}
       - name: Patch MetalFX for installed iOS SDK
+        if: steps.native-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -127,6 +149,7 @@ jobs:
           p.write_text(s)
           PY
       - name: Build native runtime dependencies
+        if: steps.native-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -271,7 +294,19 @@ jobs:
           cp "$DXMT_BUILD/libdxmt_combined.a" \
             "$GITHUB_WORKSPACE/vendor/Madeira/app/Madeira/libdxmt_combined.a"
           test -s "$GITHUB_WORKSPACE/vendor/Madeira/app/Madeira/libdxmt_combined.a"
+      - name: Save completed iOS native runtime
+        if: steps.native-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            vendor/Madeira/app/Madeira/lib*.a
+            vendor/Madeira/build/madeira_cfg.h
+          key: ${{ steps.native-cache.outputs.cache-primary-key }}
+      - name: Stage native runtime resources
+        run: |
+          set -euo pipefail
           tools/stage_runtime.sh
+          test -s app/RuntimeStage/lib/libdxmt_combined.a
       - name: Prepare StikJIT framework
         run: python3 tools/prepare_stikjit.py
       - name: Stage Madeira configuration header
