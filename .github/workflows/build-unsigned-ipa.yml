@@ -280,6 +280,18 @@ jobs:
           test -s build/madeira_cfg.h
       - name: Generate Xcode project
         run: cd app && xcodegen generate
+      - name: Check DXMT optional symbol compatibility
+        run: |
+          set -euo pipefail
+          LIB="$GITHUB_WORKSPACE/vendor/Madeira/app/Madeira/libdxmt_combined.a"
+          test -s "$LIB"
+          for symbol in madeira_framegen_get madeira_framegen_set madeira_passprof_start madeira_passprof_dump; do
+            if xcrun nm -g "$LIB" | grep -Eq "[[:space:]]_?${symbol}$"; then
+              echo "$symbol: provided by DXMT"
+            else
+              echo "$symbol: optional compatibility fallback required"
+            fi
+          done
       - name: Build unsigned app
         run: |
           set -euo pipefail
